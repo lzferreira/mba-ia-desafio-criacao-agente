@@ -8,6 +8,7 @@ pendente nesta sessão passa.
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import FastAPI, HTTPException
 from google.genai import types
@@ -15,6 +16,8 @@ from pydantic import BaseModel
 
 from . import armazenamento, pendencias
 from .aplicacao import Aplicacao
+
+logger = logging.getLogger(__name__)
 
 
 class NovaSessao(BaseModel):
@@ -39,6 +42,24 @@ def criar_api(aplicacao: Aplicacao) -> FastAPI:
             raise HTTPException(status_code=404, detail="sessão não encontrada")
         return sessao
 
+    async def _conversar_ou_503(session_id: str, mensagem):
+        """Traduz uma falha da chamada ao modelo em `503`, sem inventar resposta.
+
+        Quota estourada, timeout ou indisponibilidade do Gemini não podem virar
+        uma `resposta` de sucesso: o morador precisa saber que não aconteceu.
+        Nada é gravado por este caminho — as tools nem chegam a rodar.
+        """
+        try:
+            return await aplicacao.conversar(session_id, mensagem)
+        except HTTPException:
+            raise
+        except Exception as erro:
+            logger.exception("falha ao conversar na sessão %s", session_id)
+            raise HTTPException(
+                status_code=503,
+                detail=f"o assistente está indisponível agora: {erro}",
+            ) from erro
+
     def _corpo(resposta: str, eventos) -> dict:
         return {
             "resposta": resposta,
@@ -62,7 +83,7 @@ def criar_api(aplicacao: Aplicacao) -> FastAPI:
         mensagem = types.Content(
             role="user", parts=[types.Part.from_text(text=corpo.texto)]
         )
-        resposta, _ = await aplicacao.conversar(session_id, mensagem)
+        resposta, _ = await _conversar_ou_503(session_id, mensagem)
         return _corpo(resposta, await aplicacao.eventos(session_id))
 
     @api.post("/sessoes/{session_id}/confirmacoes")
@@ -80,7 +101,7 @@ def criar_api(aplicacao: Aplicacao) -> FastAPI:
                 detail="não existe confirmação pendente com esse id nesta sessão",
             )
 
-        resposta, novos = await aplicacao.conversar(
+        resposta, novos = await _conversar_ou_503(
             session_id, pendencias.resposta_de_confirmacao(corpo.id, corpo.confirmado)
         )
         if corpo.confirmado:

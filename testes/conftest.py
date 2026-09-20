@@ -30,6 +30,11 @@ def copiar_projeto(destino: Path) -> Path:
     shutil.copytree(RAIZ / "assistente", destino / "assistente")
     shutil.copytree(RAIZ / "dados", destino / "dados")
     shutil.copytree(RAIZ / "roteiro", destino / "roteiro")
+    shutil.copytree(
+        RAIZ / "testes",
+        destino / "testes",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     return destino
 
 
@@ -70,9 +75,15 @@ class ApiDeVerdade:
     nenhuma delas é verdade sobre o processo se o processo não existir.
     """
 
-    def __init__(self, raiz: Path, ambiente: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        raiz: Path,
+        ambiente: dict[str, str] | None = None,
+        modulo: str = "assistente.main",
+    ) -> None:
         self.raiz = raiz
         self.ambiente = ambiente or {}
+        self.modulo = modulo
         self.processo: subprocess.Popen | None = None
 
     def subir(self) -> None:
@@ -81,7 +92,7 @@ class ApiDeVerdade:
         ambiente.update(self.ambiente)
         ambiente["PYTHONPATH"] = str(self.raiz)
         self.processo = subprocess.Popen(
-            [str(PYTHON_DO_PROJETO), "-m", "assistente.main"],
+            [str(PYTHON_DO_PROJETO), "-m", self.modulo],
             cwd=self.raiz,
             env=ambiente,
             stdout=subprocess.PIPE,

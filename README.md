@@ -80,6 +80,16 @@ que o ADK aceita como confirmação. E a pendência é **derivada dos eventos**,
 uma tabela: um `id` já respondido deixa de estar pendente porque a resposta virou
 evento, o que dá a execução única e o `409` de graça.
 
+**Sobre a retomada.** Quando a rota entrega a resposta ao `Runner`, quem escolhe o
+agente que vai retomar é `find_agent_to_run`. O `App` sobe com
+`ResumabilityConfig(is_resumable=True)` (`assistente/aplicacao.py`), que é o que faz
+esse roteamento olhar o **autor** da `functionCall` original. Vale registrar o que
+medimos: nesta árvore o desligado também acertaria, mas por acidente — a varredura de
+eventos cai no especialista porque ele respondeu por último e pode transferir de volta
+ao pai. Bastaria bloquear essa transferência para o desligado devolver o agente raiz e
+a confirmação ser abandonada em silêncio. `testes/unidade/test_retomada.py` demonstra
+os dois sentidos, e é por isso que a linha fica.
+
 ### Garantia 2 — cada sessão pertence a um apartamento
 
 **Onde:** `assistente/aplicacao.py` (`Aplicacao.criar_sessao`),

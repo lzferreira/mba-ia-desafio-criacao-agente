@@ -107,6 +107,12 @@ async def test_aprovar_grava_exatamente_uma_reserva(bancada: Bancada) -> None:
 
 
 async def test_reenviar_id_ja_respondido_devolve_409(bancada: Bancada) -> None:
+    """Com uma segunda pendência aberta, para que o id importe de verdade.
+
+    Se a rota se contentasse em achar "alguma" pendência em vez de casar o id, o
+    reenvio consumiria a pendência da churrasqueira — e um teste com uma única
+    pendência na sessão nunca perceberia.
+    """
     sessao = await criar_sessao(bancada, "101")
     pendencia = (await pedir_reserva(bancada, sessao)).json()[
         "confirmacoes_pendentes"
@@ -116,6 +122,10 @@ async def test_reenviar_id_ja_respondido_devolve_409(bancada: Bancada) -> None:
     await bancada.cliente.post(
         f"/sessoes/{sessao}/confirmacoes", json={"id": pendencia, "confirmado": True}
     )
+
+    outra = await pedir_reserva(bancada, sessao, "churrasqueira", "2030-06-15")
+    ids_pendentes = [p["id"] for p in outra.json()["confirmacoes_pendentes"]]
+    assert len(ids_pendentes) == 1 and ids_pendentes[0] != pendencia
     chamadas_ate_aqui = len(bancada.modelo.chamadas)
 
     repetida = await bancada.cliente.post(
@@ -126,6 +136,9 @@ async def test_reenviar_id_ja_respondido_devolve_409(bancada: Bancada) -> None:
     assert len(await reservas_do_salao(bancada)) == 1
     # A recusa vem antes do Runner: o modelo não foi chamado de novo.
     assert len(bancada.modelo.chamadas) == chamadas_ate_aqui
+    # E a outra pendência continua intocada: o id errado não consumiu a certa.
+    reservas = (await bancada.cliente.get("/apartamentos/101/reservas")).json()
+    assert [r for r in reservas if r["area"] == "churrasqueira"] == []
 
 
 async def test_id_inexistente_devolve_409(bancada: Bancada) -> None:
@@ -143,12 +156,17 @@ async def test_id_inexistente_devolve_409(bancada: Bancada) -> None:
 
 
 async def test_id_pendente_em_outra_sessao_devolve_409(bancada: Bancada) -> None:
+    """S1 tem pendência própria, para que a recusa não seja por falta de candidata."""
     s1 = await criar_sessao(bancada, "101")
     s2 = await criar_sessao(bancada, "101")
 
+    propria_de_s1 = (
+        await pedir_reserva(bancada, s1, "churrasqueira", "2030-06-15")
+    ).json()["confirmacoes_pendentes"][0]["id"]
     pendencia_de_s2 = (await pedir_reserva(bancada, s2)).json()[
         "confirmacoes_pendentes"
     ][0]["id"]
+    assert propria_de_s1 != pendencia_de_s2
 
     resposta = await bancada.cliente.post(
         f"/sessoes/{s1}/confirmacoes", json={"id": pendencia_de_s2, "confirmado": True}
@@ -156,6 +174,9 @@ async def test_id_pendente_em_outra_sessao_devolve_409(bancada: Bancada) -> None
 
     assert resposta.status_code == 409
     assert await reservas_do_salao(bancada) == []
+    # A pendência que S1 realmente tinha não foi executada no lugar da recusada.
+    reservas = (await bancada.cliente.get("/apartamentos/101/reservas")).json()
+    assert [r for r in reservas if r["area"] == "churrasqueira"] == []
 
     # A pendência de S2 continua intacta, esperando a sessão dela.
     bancada.roteirizar(especialista_reservas=[texto("E aí?")])

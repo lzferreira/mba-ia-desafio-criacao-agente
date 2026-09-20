@@ -67,6 +67,18 @@ def test_reservar_recusa_area_inexistente_nomeando_as_tres(conexao) -> None:
         assert nome in resultado["mensagem"]
 
 
+def test_reservar_recusa_data_fora_do_formato(conexao) -> None:
+    """A quinta linha da tabela: identificador de área válido, data que não é data."""
+    resultado = dominio.reservar(conexao, "101", "quadra", "6 de abril")
+
+    assert resultado["ok"] is False
+    assert resultado["motivo"] == "data_invalida"
+    assert "AAAA-MM-DD" in resultado["mensagem"]
+    assert conexao.execute(
+        "SELECT count(*) FROM reservas WHERE data = '6 de abril'"
+    ).fetchone()[0] == 0
+
+
 def test_reservar_recusa_data_que_ja_e_do_proprio_apartamento(conexao) -> None:
     resultado = dominio.reservar(conexao, "101", "quadra", "2030-03-09")
     assert resultado["ok"] is False

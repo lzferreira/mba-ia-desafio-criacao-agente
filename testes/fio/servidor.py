@@ -91,11 +91,22 @@ def _cliente(configuracao: Configuracao) -> httpx.AsyncClient:
 
 
 def montar(diretorio: Path, **roteiro: list[LlmResponse]) -> Bancada:
+    return montar_com(diretorio, roteirizar(**roteiro))
+
+
+def montar_com(diretorio: Path, modelo) -> Bancada:
+    """Monta a bancada com o modelo que a prova pedir.
+
+    `ModeloDeBancada` entra por aqui quando a prova não pode alimentar a resposta
+    que ela mesma vai asseverar — é o que separa uma prova de verdade de uma que
+    só confere a própria constante.
+    """
     diretorio.mkdir(parents=True, exist_ok=True)
     armazenamento.restaurar(
         diretorio / "condominio.db", diretorio / "sessoes.db", DIRETORIO_DE_DADOS
     )
-    modelo = roteirizar(**roteiro)
     return Bancada(
-        diretorio=diretorio, modelo=modelo, cliente=_cliente(_configuracao(diretorio, modelo))
+        diretorio=diretorio,
+        modelo=modelo,
+        cliente=_cliente(_configuracao(diretorio, modelo)),
     )

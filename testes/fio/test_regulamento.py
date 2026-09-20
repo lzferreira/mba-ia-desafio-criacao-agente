@@ -15,7 +15,7 @@ from google.genai import types
 
 from testes.fio.conftest import criar_sessao
 from testes.fio.modelo import chamar, texto, transferir
-from testes.fio.servidor import Bancada
+from testes.fio.servidor import RAIZ_DO_PROJETO, Bancada
 
 PERGUNTA_DA_PISCINA = "Até que horas a piscina funciona aos domingos?"
 RESPOSTA_DA_PISCINA = (
@@ -96,17 +96,28 @@ async def test_especialista_e_acionado_como_tool_sem_transferencia(
 
 
 async def test_resposta_sobre_a_piscina_chega_ao_morador_com_20h(
-    bancada: Bancada,
+    bancada_realista: Bancada,
 ) -> None:
-    sessao = await criar_sessao(bancada, "101")
-    roteiro_da_piscina(bancada, procurar_em_outros_capitulos=False)
+    """O `20h` vem do arquivo, não do teste.
 
-    resposta = await bancada.cliente.post(
+    Esta prova roda com o modelo que decide pelo texto: ninguém alimenta a frase
+    que vai ser asseverada. O horário só pode ter chegado à resposta por
+    `ler_capitulo_do_regulamento`, que leu o Capítulo IV de `dados/regulamento.md`.
+    """
+    sessao = await criar_sessao(bancada_realista, "101")
+
+    resposta = await bancada_realista.cliente.post(
         f"/sessoes/{sessao}/mensagens", json={"texto": PERGUNTA_DA_PISCINA}
     )
 
     assert resposta.status_code == 200
-    assert "20h" in resposta.json()["resposta"]
+    corpo = resposta.json()["resposta"]
+    assert "20h" in corpo, corpo
+    assert "domingos" in corpo.lower(), corpo
+
+    # E o horário asseverado é mesmo o que está no arquivo, no Art. 22, II.
+    fonte = (RAIZ_DO_PROJETO / "dados" / "regulamento.md").read_text("utf-8")
+    assert "Aos domingos e feriados, a piscina funciona das 9h às 20h" in fonte
 
 
 async def test_nenhum_evento_contem_capitulo_de_outro_assunto(bancada: Bancada) -> None:
@@ -207,6 +218,13 @@ async def test_mensagem_mista_passa_pelos_dois_especialistas(bancada: Bancada) -
     assert "20h" in corpo
     assert "2030-04-06" in corpo
 
+    # A parte da reserva não é encenação: a linha existe no banco.
+    with bancada.conexao() as conexao:
+        assert conexao.execute(
+            "SELECT count(*) FROM reservas"
+            " WHERE area = 'quadra' AND data = '2030-04-06' AND ativa = 1"
+        ).fetchone()[0] == 1
+
     eventos = (await bancada.cliente.get(f"/sessoes/{sessao}/eventos")).json()
     chamadas = [
         parte["functionCall"]["name"]
@@ -220,3 +238,43 @@ async def test_mensagem_mista_passa_pelos_dois_especialistas(bancada: Bancada) -
 
     reservas = (await bancada.cliente.get("/apartamentos/101/reservas")).json()
     assert [r for r in reservas if r["data"] == "2030-04-06"] != []
+
+
+async def test_pergunta_que_atravessa_capitulos_le_os_pertinentes(
+    bancada: Bancada,
+) -> None:
+    """Estado do design que nenhum critério numerou, provado assim mesmo.
+
+    Um capítulo pertinente não é "outro assunto": ler dois de propósito, quando a
+    pergunta atravessa os dois, continua dentro da Garantia 4 — o que não pode é
+    o texto deles sair da sessão descartável do `AgentTool`.
+    """
+    sessao = await criar_sessao(bancada, "101")
+    pergunta = "Posso levar meu cachorro até a garagem para embarcar no carro?"
+    bancada.roteirizar(
+        assistente_aurora=[
+            chamar("especialista_regulamento", request=pergunta),
+            texto("Sim, conduzido por guia, e a pé até o veículo."),
+        ],
+        especialista_regulamento=[
+            chamar("ler_capitulo_do_regulamento", capitulo="VIII"),
+            chamar("ler_capitulo_do_regulamento", capitulo="XI"),
+            texto("Sim, conduzido por guia, e a pé até o veículo."),
+        ],
+    )
+
+    resposta = await bancada.cliente.post(
+        f"/sessoes/{sessao}/mensagens", json={"texto": pergunta}
+    )
+
+    assert resposta.status_code == 200
+    lidos = [
+        resumo
+        for agente, resumo in bancada.modelo.chamadas
+        if agente == "especialista_regulamento"
+    ]
+    assert lidos.count("call:ler_capitulo_do_regulamento") == 2
+
+    eventos = await eventos_em_texto(bancada, sessao)
+    assert SENTINELA_DO_VIII not in eventos
+    assert SENTINELA_DO_XI not in eventos

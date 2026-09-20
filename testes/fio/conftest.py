@@ -6,12 +6,27 @@ from pathlib import Path
 
 import pytest
 
-from .servidor import Bancada, montar
+from .modelo_de_bancada import ModeloDeBancada
+from .servidor import Bancada, montar, montar_com
 
 
 @pytest.fixture
 async def bancada(tmp_path: Path) -> Bancada:
     montada = montar(tmp_path / "estado")
+    try:
+        yield montada
+    finally:
+        await montada.cliente.aclose()
+
+
+@pytest.fixture
+async def bancada_realista(tmp_path: Path) -> Bancada:
+    """Bancada com o modelo que decide pelo texto, sem roteiro alimentado.
+
+    O que ela responde vem das tools e dos arquivos, não de uma constante do
+    teste — é a montagem certa para asseverar o conteúdo de uma resposta.
+    """
+    montada = montar_com(tmp_path / "estado", ModeloDeBancada())
     try:
         yield montada
     finally:

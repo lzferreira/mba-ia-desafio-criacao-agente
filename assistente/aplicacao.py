@@ -113,13 +113,22 @@ def construir_api(configuracao: Configuracao) -> FastAPI:
         app=App(
             name=NOME_DO_APP,
             root_agent=agentes.construir_agentes(aplicacao),
-            # Sem retomada ligada, `find_agent_to_run` ignora o autor da
-            # `functionCall` e devolve a resposta de confirmação ao agente raiz
-            # (`agents/_agent_router.py:118-131`). A rota responde 200, o
-            # processador de confirmação não encontra a chamada original no agente
-            # em que caiu, e a ação nunca executa — em silêncio.
+            # Só com a retomada ligada `find_agent_to_run` roteia pelo autor da
+            # `functionCall` (`agents/_agent_router.py:118-131`). Nesta árvore o
+            # desligado também acerta, mas por acidente: a varredura de eventos
+            # cai no especialista porque ele respondeu por último e pode
+            # transferir de volta ao pai. Bloquear essa transferência — um
+            # endurecimento plausível — faria a varredura devolver o agente raiz,
+            # e aí a confirmação é abandonada em silêncio. A linha é o que torna a
+            # escolha uma decisão em vez de uma coincidência de topologia;
+            # `testes/unidade/test_retomada.py` mostra os dois sentidos.
             resumability_config=ResumabilityConfig(is_resumable=True),
         ),
         session_service=aplicacao.servico_de_sessoes,
     )
-    return api.criar_api(aplicacao)
+    montada = api.criar_api(aplicacao)
+    # A montagem fica alcançável a partir da API: é assim que uma prova confere o
+    # que ficou realmente configurado, em vez de reconstruir a montagem por fora
+    # e asseverar sobre a cópia dela.
+    montada.state.aplicacao = aplicacao
+    return montada
