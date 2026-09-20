@@ -15,7 +15,17 @@ DIRETORIO_DE_ESTADO = RAIZ / "var"
 
 VARIAVEL_DA_CHAVE = "GOOGLE_API_KEY"
 VARIAVEL_DO_MODELO = "GEMINI_MODEL"
-MODELO_PADRAO = "gemini-2.5-flash"
+# O padrão é o modelo com que o fluxo dos 15 passos foi executado de ponta a ponta
+# numa chave de nível gratuito. Duas coisas aprendidas rodando:
+#
+# - `gemini-2.5-flash`, o do curso, continua listado em `models.list` mas recusa
+#   gerar para chaves novas, com `404 NOT_FOUND` recomendando um modelo mais novo;
+# - no nível gratuito a cota por minuto é pequena (5/min nos modelos `flash`
+#   numerados) e cada mensagem do fluxo gasta várias chamadas.
+#
+# Trocar é uma linha, aqui ou no `.env`: nenhum critério do desafio cita o nome do
+# modelo, e os limites do AI Studio mudam com frequência.
+MODELO_PADRAO = "gemini-flash-lite-latest"
 
 NOME_DO_APP = "aurora"
 PORTA = 8000

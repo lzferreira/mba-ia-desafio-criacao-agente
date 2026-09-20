@@ -12,6 +12,7 @@ suíte de testes.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -28,6 +29,15 @@ TRES_ZERO_DOIS = re.compile(r"(?<!\d)302(?!\d)")
 
 COMANDO_DA_API = [sys.executable, "-m", "assistente.main"]
 COMANDO_DE_RESTAURACAO = [sys.executable, "-m", "assistente.restaurar"]
+
+# O nível gratuito do AI Studio limita chamadas por minuto, e cada mensagem do
+# fluxo gasta várias. A pausa espaça as mensagens o suficiente para o fluxo
+# inteiro caber no limite.
+#
+# Espaçar é a única saída segura: repetir uma mensagem que estourou a quota no
+# meio da execução reexecutaria as tools que já tinham rodado, e aí uma reserva
+# ou uma autorização sairia em dobro. Esperar antes nunca tem esse efeito.
+VARIAVEL_DA_PAUSA = "AURORA_PAUSA_SEGUNDOS"
 
 
 class FalhaDeVerificacao(Exception):
@@ -55,6 +65,9 @@ class Contexto:
     codigos_criados: list[str] = field(default_factory=list)
     passo_atual: int = 0
     codigo_de_saida: int | None = None
+    pausa: float = field(
+        default_factory=lambda: float(os.environ.get(VARIAVEL_DA_PAUSA, "0") or 0)
+    )
     saida: list[str] = field(default_factory=list)
 
     # -- infraestrutura --------------------------------------------------------
@@ -126,12 +139,19 @@ class Contexto:
     def criar_sessao(self, apartamento: str) -> httpx.Response:
         return self.cliente.post("/sessoes", json={"apartamento": apartamento})
 
+    def respirar(self) -> None:
+        """Espaça as chamadas ao modelo quando a quota do nível gratuito pede."""
+        if self.pausa > 0:
+            time.sleep(self.pausa)
+
     def enviar(self, sessao: str, texto: str) -> httpx.Response:
+        self.respirar()
         return self.cliente.post(
             f"/sessoes/{sessao}/mensagens", json={"texto": texto}
         )
 
     def confirmar(self, sessao: str, identificador: str, confirmado: bool):
+        self.respirar()
         return self.cliente.post(
             f"/sessoes/{sessao}/confirmacoes",
             json={"id": identificador, "confirmado": confirmado},

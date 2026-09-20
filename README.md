@@ -195,7 +195,18 @@ cp .env.example .env
 | Variável | Obrigatória | Para quê |
 | --- | --- | --- |
 | `GOOGLE_API_KEY` | sim | A chave do Google AI Studio. Sem ela a API não sobe: o processo encerra nomeando a variável, antes de abrir a porta 8000. |
-| `GEMINI_MODEL` | não | O modelo usado pelos quatro agentes. Em branco, `gemini-2.5-flash`. |
+| `GEMINI_MODEL` | não | O modelo usado pelos quatro agentes. Em branco, `gemini-flash-lite-latest`. |
+
+Sobre o modelo, duas coisas que aparecem só rodando:
+
+- **`gemini-2.5-flash`, o do curso, não serve mais para chaves novas.** Ele continua
+  aparecendo em `models.list`, mas gerar com ele devolve `404 NOT_FOUND` recomendando
+  um modelo mais novo. Quem tiver esse nome no `.env` vai ver a API responder `503`
+  dizendo exatamente isso — que é o comportamento desenhado para falha do modelo.
+- **No nível gratuito a cota por minuto é pequena** (5/min nos modelos `flash`
+  numerados) e cada mensagem do fluxo gasta várias chamadas. O padrão
+  `gemini-flash-lite-latest` é o modelo com que os 15 passos rodaram inteiros numa
+  chave gratuita.
 
 ### Instalar
 
@@ -235,6 +246,19 @@ própria):
 ```bash
 uv run python -m roteiro.avaliador
 ```
+
+Ele restaura os dados, sobe a API, percorre os 15 passos na ordem imprimindo cada
+verificação, e sai com código diferente de zero na primeira que falhar.
+
+Numa chave de nível gratuito, espace as mensagens para caber na cota por minuto:
+
+```bash
+AURORA_PAUSA_SEGUNDOS=20 uv run python -m roteiro.avaliador
+```
+
+A pausa é a saída segura para a cota. Repetir uma mensagem que estourou a quota no
+meio da execução reexecutaria as tools que já tinham rodado, e aí uma reserva ou uma
+autorização sairia em dobro; esperar antes nunca tem esse efeito.
 
 ### Rodar as provas
 
