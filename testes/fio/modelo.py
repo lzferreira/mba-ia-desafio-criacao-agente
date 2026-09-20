@@ -29,13 +29,20 @@ def texto(conteudo: str) -> LlmResponse:
     )
 
 
-def chamar(nome: str, **argumentos) -> LlmResponse:
+def chamar(__tool: str, **argumentos) -> LlmResponse:
+    """Um turno em que o modelo chama uma tool.
+
+    O nome do parâmetro é posicional-only para que `chamar("autorizar_visitante",
+    nome=...)` não colida com ele.
+    """
     return LlmResponse(
         content=types.Content(
             role="model",
             parts=[
                 types.Part(
-                    function_call=types.FunctionCall(name=nome, args=dict(argumentos))
+                    function_call=types.FunctionCall(
+                        name=__tool, args=dict(argumentos)
+                    )
                 )
             ],
         ),

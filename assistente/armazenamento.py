@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS visitantes (
 
 INDICE_DE_EXCLUSIVIDADE = "reservas_area_data_ativa"
 TENTATIVAS_DE_CODIGO = 50
+FAIXA_INICIAL = 1000
+FAIXA_FINAL = 9999
+
+# O SQLite nomeia as colunas do índice violado, não o índice: a recusa de
+# exclusividade chega como "UNIQUE constraint failed: reservas.area, reservas.data".
+# É preciso distingui-la da colisão de `codigo`, que é outra coisa e não é do
+# morador.
+COLUNAS_DA_EXCLUSIVIDADE = ("reservas.area", "reservas.data")
 
 
 class DataIndisponivel(RuntimeError):
@@ -153,13 +161,24 @@ def _gerar_codigo(conexao: sqlite3.Connection) -> str:
     código já emitido continua ocupado para sempre (regra de negócio 5).
     """
     for _ in range(TENTATIVAS_DE_CODIGO):
-        codigo = f"RSV-{random.randint(1000, 9999)}"
+        codigo = f"RSV-{random.randint(FAIXA_INICIAL, FAIXA_FINAL)}"
         existe = conexao.execute(
             "SELECT 1 FROM reservas WHERE codigo = ?", (codigo,)
         ).fetchone()
         if not existe:
             return codigo
-    raise RuntimeError("Não foi possível gerar um código de reserva inédito.")
+
+    # O sorteio desistiu porque a faixa está quase cheia, não porque não há código
+    # livre. Varrer o que já foi emitido devolve a resposta certa; desistir aqui
+    # reaproveitaria o sorteio do azar em vez de respeitar a regra de negócio 5.
+    emitidos = {
+        linha["codigo"] for linha in conexao.execute("SELECT codigo FROM reservas")
+    }
+    for numero in range(FAIXA_INICIAL, FAIXA_FINAL + 1):
+        codigo = f"RSV-{numero}"
+        if codigo not in emitidos:
+            return codigo
+    raise RuntimeError("A faixa de códigos de reserva acabou.")
 
 
 def gravar_reserva(
@@ -183,7 +202,10 @@ def gravar_reserva(
         return codigo
     except sqlite3.IntegrityError as erro:
         conexao.execute("ROLLBACK")
-        if INDICE_DE_EXCLUSIVIDADE in str(erro):
+        motivo = str(erro)
+        if INDICE_DE_EXCLUSIVIDADE in motivo or all(
+            coluna in motivo for coluna in COLUNAS_DA_EXCLUSIVIDADE
+        ):
             raise DataIndisponivel(area, data) from erro
         raise
     except Exception:
