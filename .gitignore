@@ -1,3 +1,16 @@
 .env
 .venv/
 __pycache__/
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Ferramentas de assistente/planejamento (nao fazem parte da entrega)
+.checks/
+.claude/
+.design/
+.tasks/
+CLAUDE.md
+AGENTS.md
+desafio.md
