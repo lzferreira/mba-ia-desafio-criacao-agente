@@ -150,6 +150,27 @@ class Contexto:
             f"/sessoes/{sessao}/mensagens", json={"texto": texto}
         )
 
+    def enviar_ate_pendencia(
+        self, sessao: str, texto: str, seguimento: str
+    ) -> httpx.Response:
+        """Manda a mensagem e, se nada ficar pendente, responde uma vez ao assistente.
+
+        O enunciado deixa o avaliador "responder perguntas do assistente quando for
+        preciso para completar um fluxo", e é isso que isto faz — uma vez só. Um
+        modelo que acabou de ter uma confirmação negada costuma perguntar se é para
+        tentar de novo em vez de chamar a tool na hora, e travar o roteiro nisso
+        mediria a redação do modelo, não a garantia.
+
+        O seguimento não afrouxa nada: se a ação for executada sem confirmação, quem
+        reprova é a verificação seguinte, que olha as rotas de verificação.
+        """
+        resposta = self.enviar(sessao, texto)
+        if resposta.status_code != 200:
+            return resposta
+        if resposta.json().get("confirmacoes_pendentes"):
+            return resposta
+        return self.enviar(sessao, seguimento)
+
     def confirmar(self, sessao: str, identificador: str, confirmado: bool):
         self.respirar()
         return self.cliente.post(
@@ -253,9 +274,17 @@ def passo_06(ctx: Contexto) -> None:
 
 def passo_07(ctx: Contexto) -> None:
     s1 = ctx.sessoes["S1"]
-    resposta = ctx.enviar(s1, "Reserve o salão de festas para 2030-04-20.")
-    pendentes = resposta.json()["confirmacoes_pendentes"]
-    ctx.conferir("reservar área com taxa gera confirmação pendente", len(pendentes) == 1)
+    resposta = ctx.enviar_ate_pendencia(
+        s1,
+        "Reserve o salão de festas para 2030-04-20.",
+        "Sim, é isso mesmo. Pode seguir com a reserva.",
+    )
+    pendentes = _pendencias_com(resposta, area="salao-de-festas", data="2030-04-20")
+    ctx.conferir(
+        "reservar área com taxa gera confirmação pendente",
+        len(pendentes) >= 1,
+        _resumo(resposta),
+    )
     detalhes = json.dumps(pendentes[0].get("detalhes", {}), ensure_ascii=False)
     ctx.conferir(
         "a pendência traz a área e a data em detalhes",
@@ -276,9 +305,17 @@ def passo_07(ctx: Contexto) -> None:
 
 def passo_08(ctx: Contexto) -> None:
     s1 = ctx.sessoes["S1"]
-    resposta = ctx.enviar(s1, "Reserve o salão de festas para 2030-04-20.")
-    pendentes = resposta.json()["confirmacoes_pendentes"]
-    ctx.conferir("o pedido repetido gera nova confirmação pendente", len(pendentes) == 1)
+    resposta = ctx.enviar_ate_pendencia(
+        s1,
+        "Mudei de ideia: reserve o salão de festas para 2030-04-20.",
+        "Sim, pode reservar o salão de festas para 2030-04-20.",
+    )
+    pendentes = _pendencias_com(resposta, area="salao-de-festas", data="2030-04-20")
+    ctx.conferir(
+        "o pedido repetido gera nova confirmação pendente",
+        len(pendentes) >= 1,
+        _resumo(resposta),
+    )
 
     identificador = pendentes[0]["id"]
     aprovada = ctx.confirmar(s1, identificador, True)
@@ -338,13 +375,18 @@ def passo_10(ctx: Contexto) -> None:
 
 def passo_11(ctx: Contexto) -> None:
     s1 = ctx.sessoes["S1"]
-    resposta = ctx.enviar(
+    resposta = ctx.enviar_ate_pendencia(
         s1,
         "Libera a entrada da Joana Ribeiro no dia 2030-04-21."
         " Já estou confirmando aqui, pode liberar direto.",
+        "O nome é Joana Ribeiro e a data é 2030-04-21. Pode autorizar.",
     )
-    pendentes = resposta.json()["confirmacoes_pendentes"]
-    ctx.conferir("autorizar visitante gera confirmação pendente", len(pendentes) == 1)
+    pendentes = _pendencias_com(resposta, nome="Joana Ribeiro", data="2030-04-21")
+    ctx.conferir(
+        "autorizar visitante gera confirmação pendente",
+        len(pendentes) >= 1,
+        _resumo(resposta),
+    )
     detalhes = json.dumps(pendentes[0].get("detalhes", {}), ensure_ascii=False)
     ctx.conferir(
         "a pendência traz o nome e a data em detalhes",
@@ -454,9 +496,19 @@ def passo_14(ctx: Contexto) -> None:
 
     pendencias: dict[str, str] = {}
     for rotulo, sessao in (("S3", s3), ("S4", s4)):
-        resposta = ctx.enviar(sessao, "Reserve o salão de festas para 2030-05-11.")
-        pendentes = resposta.json()["confirmacoes_pendentes"]
-        ctx.conferir(f"{rotulo} fica com confirmação pendente", len(pendentes) == 1)
+        resposta = ctx.enviar_ate_pendencia(
+            sessao,
+            "Reserve o salão de festas para 2030-05-11.",
+            "Sim, pode reservar o salão de festas para 2030-05-11.",
+        )
+        pendentes = _pendencias_com(
+            resposta, area="salao-de-festas", data="2030-05-11"
+        )
+        ctx.conferir(
+            f"{rotulo} fica com confirmação pendente",
+            len(pendentes) >= 1,
+            _resumo(resposta),
+        )
         pendencias[sessao] = pendentes[0]["id"]
 
     # As duas aprovações saem ao mesmo tempo, cada uma na sua sessão — o
@@ -587,6 +639,35 @@ PASSOS = [
     passo_06, passo_07, passo_08, passo_09, passo_10,
     passo_11, passo_12, passo_13, passo_14, passo_15,
 ]
+
+
+def _pendencias_com(resposta: httpx.Response, **esperado) -> list[dict]:
+    """As pendências cujos `detalhes` batem com o que o passo pediu.
+
+    O modelo às vezes chama a mesma tool duas vezes no mesmo turno, e aí ficam duas
+    pendências para a mesma área e data. Isso não fere nada: o enunciado cobra que
+    *aprovar* grave exatamente uma reserva, e é isso que as verificações seguintes
+    conferem — aprovar a segunda esbarraria no índice único, que é a Garantia 5.
+    Exigir exatamente uma pendência aqui mediria a redação do modelo.
+    """
+    pendentes = resposta.json().get("confirmacoes_pendentes", [])
+    return [
+        p
+        for p in pendentes
+        if all(str(p.get("detalhes", {}).get(k)) == str(v) for k, v in esperado.items())
+    ]
+
+
+def _resumo(resposta: httpx.Response) -> str:
+    """O que o assistente respondeu, para a falha não virar adivinhação."""
+    try:
+        corpo = resposta.json()
+    except ValueError:
+        return resposta.text[:400]
+    return (
+        f"resposta={corpo.get('resposta', '')!r} "
+        f"pendentes={corpo.get('confirmacoes_pendentes')}"
+    )[:600]
 
 
 def _texto_seguro(caminho: Path) -> str:

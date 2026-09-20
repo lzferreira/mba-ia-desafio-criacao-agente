@@ -197,16 +197,37 @@ cp .env.example .env
 | `GOOGLE_API_KEY` | sim | A chave do Google AI Studio. Sem ela a API não sobe: o processo encerra nomeando a variável, antes de abrir a porta 8000. |
 | `GEMINI_MODEL` | não | O modelo usado pelos quatro agentes. Em branco, `gemini-flash-lite-latest`. |
 
-Sobre o modelo, duas coisas que aparecem só rodando:
+#### Escolha do modelo, e por que ela mudou
 
-- **`gemini-2.5-flash`, o do curso, não serve mais para chaves novas.** Ele continua
-  aparecendo em `models.list`, mas gerar com ele devolve `404 NOT_FOUND` recomendando
-  um modelo mais novo. Quem tiver esse nome no `.env` vai ver a API responder `503`
-  dizendo exatamente isso — que é o comportamento desenhado para falha do modelo.
-- **No nível gratuito a cota por minuto é pequena** (5/min nos modelos `flash`
-  numerados) e cada mensagem do fluxo gasta várias chamadas. O padrão
-  `gemini-flash-lite-latest` é o modelo com que os 15 passos rodaram inteiros numa
-  chave gratuita.
+O projeto começou em `gemini-2.5-flash`, o modelo do curso. O padrão hoje é
+`gemini-flash-lite-latest`. A troca não foi preferência: as duas razões abaixo só
+apareceram quando o fluxo dos 15 passos rodou contra o Gemini de verdade, em
+2026-09-20, e nenhuma delas é visível com modelo de teste.
+
+**1. `gemini-2.5-flash` não gera mais para chaves novas do AI Studio.** Ele continua
+listado em `models.list`, então parece disponível até a hora de chamar. A chamada
+devolve:
+
+```
+404 NOT_FOUND — This model models/gemini-2.5-flash is no longer available to new
+users. Please update your code to use models/gemini-3.6-flash ...
+```
+
+Quem deixar esse nome no `.env` vai ver a API responder `503` repetindo essa
+mensagem. Isso é o comportamento desenhado para falha do modelo, não um defeito: a
+API nomeia a falha em vez de inventar uma `resposta` de sucesso, e foi exatamente
+assim que o problema apareceu em vez de virar um passo falhando sem explicação.
+
+**2. No nível gratuito a cota por minuto é apertada.** Os modelos `flash` numerados
+dão 5 chamadas por minuto, e cada mensagem do fluxo gasta várias — transferência,
+tool, resposta. Com `gemini-3.6-flash`, o substituto que o próprio erro recomenda, o
+fluxo parava no passo 4 por `429 RESOURCE_EXHAUSTED`. `gemini-flash-lite-latest` foi
+o modelo com que os 15 passos rodaram inteiros, duas vezes, numa chave gratuita.
+
+Trocar continua sendo uma linha, no `.env` ou em `assistente/configuracao.py`:
+nenhum critério do desafio cita o nome do modelo, e o enunciado avisa que os limites
+do AI Studio mudam com frequência. Num projeto com cota paga, qualquer `flash`
+recente serve e o fluxo roda sem pausa.
 
 ### Instalar
 
