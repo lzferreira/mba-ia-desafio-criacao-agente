@@ -14,3 +14,6 @@ dist/
 CLAUDE.md
 AGENTS.md
 desafio.md
+
+# Bancos SQLite gerados em runtime (condomínio e sessões do ADK)
+var/

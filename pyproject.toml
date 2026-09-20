@@ -1,0 +1,34 @@
+[project]
+name = "assistente-aurora"
+version = "1.0.0"
+description = "Regra é regra: o assistente virtual do Residencial Aurora"
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk==2.9.2",
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+    "python-dotenv==1.2.3",
+    "httpx==0.28.1",
+]
+
+[project.scripts]
+aurora-api = "assistente.main:principal"
+aurora-restaurar = "assistente.restaurar:principal"
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["assistente", "roteiro"]
+
+[tool.pytest.ini_options]
+testpaths = ["testes"]
+addopts = "-q"
+asyncio_mode = "auto"
